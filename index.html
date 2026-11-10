@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="인생샷">
+<meta name="theme-color" content="#0c0d10">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<title>인생샷 카메라</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<!-- 홈: 좋아하는 사진 모으기 -->
+<main id="home" class="screen">
+  <header class="home-head">
+    <p class="eyebrow">내 취향대로 찍히는</p>
+    <h1>인생샷 카메라</h1>
+  </header>
+
+  <section id="taste" class="taste" hidden>
+    <p class="taste-label">내 취향</p>
+    <p id="tasteMain" class="taste-main"></p>
+    <p id="tasteSub" class="taste-sub"></p>
+  </section>
+
+  <section id="empty" class="empty">
+    <ol class="steps">
+      <li><b>좋아하는 사진을 고릅니다.</b> 마음에 들었던 사진을 여러 장 넣을수록 취향을 정확히 압니다.</li>
+      <li><b>찍는 사람이 안내를 따라 움직입니다.</b> “더 가까이”, “왼쪽으로”처럼 화면이 알려 줍니다.</li>
+      <li><b>자리가 맞으면 자동으로 찍힙니다.</b> 색감도 좋아하는 사진에 맞춰 저장됩니다.</li>
+    </ol>
+  </section>
+
+  <section class="refs-sec">
+    <div class="sec-head">
+      <h2>좋아하는 사진 <span id="refCount" class="count"></span></h2>
+    </div>
+    <div id="refGrid" class="ref-grid"></div>
+    <p id="analyzing" class="analyzing" hidden></p>
+  </section>
+
+  <footer class="home-foot">
+    <label class="btn btn-ghost" for="filePick">사진 추가</label>
+    <input id="filePick" type="file" accept="image/*" multiple hidden>
+    <button id="openCam" class="btn btn-primary" disabled>카메라 열기</button>
+    <p class="privacy">사진은 이 기기 안에서만 분석·저장됩니다.</p>
+  </footer>
+</main>
+
+<!-- 카메라 -->
+<section id="camera" class="screen camera" hidden>
+  <div class="cam-top">
+    <button id="closeCam" class="icon-btn" aria-label="닫기">
+      <svg viewBox="0 0 24 24" width="22" height="22"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/></svg>
+    </button>
+    <div class="toggles">
+      <button id="tAuto" class="toggle" aria-pressed="true">자동 촬영</button>
+      <button id="tVoice" class="toggle" aria-pressed="false">음성</button>
+      <button id="tGhost" class="toggle" aria-pressed="false">겹쳐보기</button>
+      <button id="tColor" class="toggle" aria-pressed="true">색감</button>
+    </div>
+  </div>
+
+  <div id="stage" class="stage">
+    <div id="finder" class="finder">
+      <canvas id="view"></canvas>
+      <img id="ghostImg" class="ghost-img" alt="" hidden>
+      <canvas id="overlay"></canvas>
+      <div id="flash" class="flash"></div>
+    </div>
+    <div class="hint-wrap">
+      <p id="hint" class="hint">카메라를 준비하고 있어요</p>
+      <p id="hintSub" class="hint-sub"></p>
+    </div>
+    <div class="gauge" id="gauge" hidden>
+      <span class="gauge-end">멀다</span>
+      <div class="gauge-track"><div class="gauge-ok"></div><div id="gaugeDot" class="gauge-dot"></div></div>
+      <span class="gauge-end">가깝다</span>
+    </div>
+    <div id="camError" class="cam-error" hidden></div>
+  </div>
+
+  <div class="cam-bottom">
+    <div id="chips" class="chips"></div>
+    <div id="strip" class="strip"></div>
+    <div class="controls">
+      <button id="galleryBtn" class="gallery-btn" aria-label="찍은 사진 보기"><img id="galleryThumb" alt="" hidden></button>
+      <button id="shutter" class="shutter" aria-label="촬영">
+        <svg viewBox="0 0 100 100" class="ring"><circle cx="50" cy="50" r="46" class="ring-bg"/><circle id="ringFg" cx="50" cy="50" r="46" class="ring-fg"/></svg>
+        <span class="shutter-core"></span>
+      </button>
+      <button id="flip" class="icon-btn big" aria-label="카메라 전환">
+        <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9a8 8 0 0114-3l2 2M20 15a8 8 0 01-14 3l-2-2"/><path d="M20 4v4h-4M4 20v-4h4"/></svg>
+      </button>
+    </div>
+  </div>
+</section>
+
+<!-- 찍은 사진 보기 -->
+<section id="viewer" class="screen viewer" hidden>
+  <div class="viewer-top">
+    <button id="closeViewer" class="icon-btn" aria-label="닫기">
+      <svg viewBox="0 0 24 24" width="22" height="22"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/></svg>
+    </button>
+    <p id="viewerCount" class="viewer-count"></p>
+  </div>
+  <div class="viewer-main"><img id="viewerImg" alt="찍은 사진"></div>
+  <div id="viewerStrip" class="strip viewer-strip"></div>
+  <div class="viewer-actions">
+    <button id="delShot" class="btn btn-ghost">삭제</button>
+    <button id="likeShot" class="btn btn-ghost">♥ 취향에 추가</button>
+    <button id="saveShot" class="btn btn-primary">저장</button>
+  </div>
+</section>
+
+<div id="toast" class="toast" hidden></div>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>

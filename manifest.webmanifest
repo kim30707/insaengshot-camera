@@ -1,0 +1,10 @@
+{
+  "name": "인생샷 카메라",
+  "short_name": "인생샷",
+  "start_url": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0c0d10",
+  "theme_color": "#0c0d10",
+  "icons": [{ "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+}
