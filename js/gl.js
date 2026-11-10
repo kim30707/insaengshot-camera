@@ -38,6 +38,11 @@ uniform vec2 uNoseC;     // 코 중심
 uniform vec2 uNoseK;     // 콧볼 반경, 세기
 uniform vec3 uFinish;    // 선명, 활기, 비네팅
 uniform vec2 uTexel;     // 원본 1픽셀 크기
+uniform vec4 uWaist;     // 허리 양쪽 xy
+uniform vec4 uHip;       // 골반 양쪽 xy
+uniform vec4 uBodyC;     // 허리 중심 xy, 골반 중심 xy
+uniform vec4 uBodyK;     // 허리 반경·세기, 골반 반경·세기
+uniform vec3 uLeg;       // 골반 높이(y), 다리 늘림 배율, 체형 사용 여부
 
 vec3 toLin(vec3 c) {
   return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(vec3(0.04045), c));
@@ -85,15 +90,25 @@ vec2 pull(vec2 p, vec2 j, vec2 c, float r, float k) {
   return p;
 }
 vec2 warp(vec2 uv) {
-  if (uWarp.z < 0.5) return uv;
+  if (uWarp.z < 0.5 && uLeg.z < 0.5) return uv;
   vec2 a = vec2(uAspect, 1.0);
   vec2 p = uv * a;
-  p = bulge(p, uEyes.xy * a, uWarp.x, uWarpK.x);
-  p = bulge(p, uEyes.zw * a, uWarp.x, uWarpK.x);
-  p = pull(p, uJaws.xy * a, uFaceC * a, uWarp.y, uWarpK.y);
-  p = pull(p, uJaws.zw * a, uFaceC * a, uWarp.y, uWarpK.y);
-  p = pull(p, uNose.xy * a, uNoseC * a, uNoseK.x, uNoseK.y);
-  p = pull(p, uNose.zw * a, uNoseC * a, uNoseK.x, uNoseK.y);
+  if (uLeg.z > 0.5) {
+    // 다리 길게: 골반 아래쪽을 세로로 늘린다.
+    if (p.y > uLeg.x) p.y = uLeg.x + (p.y - uLeg.x) / uLeg.y;
+    p = pull(p, uWaist.xy * a, uBodyC.xy * a, uBodyK.x, uBodyK.y);
+    p = pull(p, uWaist.zw * a, uBodyC.xy * a, uBodyK.x, uBodyK.y);
+    p = pull(p, uHip.xy * a, uBodyC.zw * a, uBodyK.z, uBodyK.w);
+    p = pull(p, uHip.zw * a, uBodyC.zw * a, uBodyK.z, uBodyK.w);
+  }
+  if (uWarp.z > 0.5) {
+    p = bulge(p, uEyes.xy * a, uWarp.x, uWarpK.x);
+    p = bulge(p, uEyes.zw * a, uWarp.x, uWarpK.x);
+    p = pull(p, uJaws.xy * a, uFaceC * a, uWarp.y, uWarpK.y);
+    p = pull(p, uJaws.zw * a, uFaceC * a, uWarp.y, uWarpK.y);
+    p = pull(p, uNose.xy * a, uNoseC * a, uNoseK.x, uNoseK.y);
+    p = pull(p, uNose.zw * a, uNoseC * a, uNoseK.x, uNoseK.y);
+  }
   return p / a;
 }
 
@@ -185,6 +200,7 @@ const UNIFORMS = [
   'uTex', 'uCrop', 'uMirror', 'uAspect', 'uMean', 'uScale', 'uShift', 'uOn',
   'uEyes', 'uJaws', 'uFaceC', 'uWarp', 'uWarpK', 'uBeauty', 'uBlurR', 'uAdj', 'uFade',
   'uNose', 'uNoseC', 'uNoseK', 'uFinish', 'uTexel',
+  'uWaist', 'uHip', 'uBodyC', 'uBodyK', 'uLeg',
 ];
 
 export class Renderer {
@@ -257,6 +273,17 @@ export class Renderer {
       gl.uniform2f(u.uNoseK, f[10] * 0.34, fx.noseK || 0);
     } else {
       gl.uniform3f(u.uWarp, 1, 1, 0);
+    }
+    const bd = fx.body;
+    if (bd && ((fx.waistK || 0) !== 0 || (fx.hipK || 0) !== 0 || (fx.legS || 1) !== 1)) {
+      // bd: [허리x,y, 허리x,y, 골반x,y, 골반x,y, 허리중심x,y, 골반중심x,y, 몸통길이, 골반높이]
+      gl.uniform4f(u.uWaist, bd[0] / A, bd[1], bd[2] / A, bd[3]);
+      gl.uniform4f(u.uHip, bd[4] / A, bd[5], bd[6] / A, bd[7]);
+      gl.uniform4f(u.uBodyC, bd[8] / A, bd[9], bd[10] / A, bd[11]);
+      gl.uniform4f(u.uBodyK, bd[12] * 0.5, fx.waistK || 0, bd[12] * 0.5, fx.hipK || 0);
+      gl.uniform3f(u.uLeg, bd[13], fx.legS || 1, 1);
+    } else {
+      gl.uniform3f(u.uLeg, 2, 1, 0);
     }
     gl.uniform2f(u.uBeauty, fx.smooth || 0, fx.bright || 0);
     gl.uniform1f(u.uBlurR, fx.blurR || 0.006);

@@ -1,5 +1,6 @@
 import * as store from './store.js';
 import { Renderer } from './gl.js';
+import { Liquify } from './liquify.js';
 import { labStats, transferParams, lerpStats } from './color.js';
 import {
   initPose, detectImage, detectVideo, measure, shotType, solveCrop, poseSimilarity,
@@ -34,9 +35,10 @@ const BEAUTY_PRESETS = [
   ['뽀샤시', { smooth: 70, bright: 55, slim: 30, eye: 20, nose: 15 }],
   ['또렷하게', { smooth: 25, bright: 15, slim: 25, eye: 30, nose: 20 }],
 ];
-const FX_DEFAULT = { on: false, smooth: 45, bright: 30, slim: 30, eye: 20, nose: 0, filter: 'none', filterAmt: 80, exp: 0, con: 0, sat: 0, temp: 0, vib: 0, sharp: 0, vig: 0 };
+const FX_DEFAULT = { on: false, smooth: 45, bright: 30, slim: 30, eye: 20, nose: 0, filter: 'none', filterAmt: 80, exp: 0, con: 0, sat: 0, temp: 0, vib: 0, sharp: 0, vig: 0, waist: 0, hip: 0, legs: 0 };
 const FX_SLIDERS = {
   beauty: [['smooth', '피부 매끈하게', 0], ['bright', '화사하게', 0], ['slim', '얼굴 갸름하게', 0], ['eye', '눈 크게', 0], ['nose', '콧볼 줄이기', 0]],
+  body: [['waist', '허리 가늘게', 0], ['hip', '골반 (줄이기 ↔ 키우기)', -100], ['legs', '다리 길게', 0]],
   adjust: [['exp', '밝기', -100], ['con', '대비', -100], ['sat', '채도', -100], ['vib', '활기', -100], ['temp', '따뜻함', -100], ['sharp', '선명하게', 0], ['vig', '비네팅', 0]],
 };
 const RATIOS = [['3:4', 3 / 4], ['9:16', 9 / 16], ['1:1', 1], ['4:3', 4 / 3]];
@@ -47,7 +49,7 @@ const PLAIN = { id: 'plain', plain: true, aspect: store.getPref('plainAspect', 3
 const S = {
   fx: { ...FX_DEFAULT, ...store.getPref('fx', {}) },
   tapShot: store.getPref('tapShot', false), mirrorSave: store.getPref('mirrorSave', true), stamp: store.getPref('stamp', false), fxBypass: false,
-  timer: store.getPref('timer', 0), countdown: 0, zoom: 1, torch: false, face: null, faceMiss: 0,
+  timer: store.getPref('timer', 0), countdown: 0, zoom: 1, torch: false, face: null, faceMiss: 0, body: null, bodyMiss: 0,
   refs: [], shots: [],
   target: null, pinnedId: null,
   facing: 'environment',
@@ -308,6 +310,7 @@ function renderHome() {
 /* ------------------------------------------------------------------ */
 
 const testSrc = new URLSearchParams(location.search).get('src');
+if (testSrc) window.__ins = S; // 개발 확인용으로만 상태를 노출한다
 
 function stopStream() {
   if (S.stream) S.stream.getTracks().forEach((t) => t.stop());
@@ -824,6 +827,29 @@ function updateFace(pts, aspect) {
   S.face = S.face ? S.face.map((v, i) => v + (f[i] - v) * 0.5) : f;
 }
 
+// 어깨·골반 위치에서 체형 보정 기준점을 구한다. 단위는 "프레임 높이 = 1".
+function updateBody(pts, aspect) {
+  if (!pts || !(pts[11][2] && pts[12][2] && pts[23][2] && pts[24][2])) {
+    if (++S.bodyMiss > 6) S.body = null;
+    return;
+  }
+  S.bodyMiss = 0;
+  const P = (i) => [pts[i][0] * aspect, pts[i][1]];
+  const sL = P(11), sR = P(12), hL = P(23), hR = P(24);
+  const sh = [(sL[0] + sR[0]) / 2, (sL[1] + sR[1]) / 2];
+  const hip = [(hL[0] + hR[0]) / 2, (hL[1] + hR[1]) / 2];
+  const ax = [hip[0] - sh[0], hip[1] - sh[1]];
+  const T = Math.hypot(ax[0], ax[1]) || 0.1;
+  const side = [ax[1] / T, -ax[0] / T];
+  // 골반 관절은 몸 윤곽 안쪽에 있으므로 바깥쪽으로 넓혀 잡는다.
+  const hw = Math.hypot(hL[0] - hR[0], hL[1] - hR[1]) / 2;
+  const wC = [sh[0] + ax[0] * 0.62, sh[1] + ax[1] * 0.62];
+  const hC = [hip[0] + ax[0] * 0.08, hip[1] + ax[1] * 0.08];
+  const at = (c, k) => [c[0] + side[0] * hw * k, c[1] + side[1] * hw * k];
+  const b = [...at(wC, 1.3), ...at(wC, -1.3), ...at(hC, 1.55), ...at(hC, -1.55), ...wC, ...hC, T, hip[1]];
+  S.body = S.body ? S.body.map((v, i) => v + (b[i] - v) * 0.5) : b;
+}
+
 function buildFx(aspect) {
   const fx = { aspect, color: currentColor() };
   const b = S.fx;
@@ -850,6 +876,12 @@ function buildFx(aspect) {
     fx.noseK = (b.nose / 100) * 0.16;
     fx.blurR = S.face[10] * 0.12;
   }
+  if (S.body && (b.waist || b.hip || b.legs)) {
+    fx.body = S.body;
+    fx.waistK = (b.waist / 100) * 0.11;
+    fx.hipK = -(b.hip / 100) * 0.1; // 양수 = 키우기(바깥으로 밀기)
+    fx.legS = 1 + (b.legs / 100) * 0.12;
+  }
   return fx;
 }
 
@@ -865,7 +897,7 @@ function renderFx() {
   syncFxSwitch();
   const tabs = $('fxTabs');
   tabs.textContent = '';
-  for (const [key, name] of [['beauty', '뷰티'], ['filter', '필터'], ['adjust', '조정']]) {
+  for (const [key, name] of [['beauty', '뷰티'], ['body', '체형'], ['filter', '필터'], ['adjust', '조정']]) {
     const b = document.createElement('button');
     b.textContent = name;
     b.className = key === fxTab ? 'on' : '';
@@ -940,6 +972,12 @@ function renderFx() {
       const note = document.createElement('p');
       note.className = 'fx-note';
       note.textContent = '갸름하게·눈 크게·콧볼은 얼굴이 정면으로 보일 때 적용됩니다.';
+      body.append(note);
+    }
+    if (fxTab === 'body') {
+      const note = document.createElement('p');
+      note.className = 'fx-note';
+      note.textContent = '어깨와 골반이 화면에 보일 때 적용됩니다. 세게 주면 배경이 함께 휘어 보일 수 있어요.';
       body.append(note);
     }
   }
@@ -1033,6 +1071,7 @@ function frame(now) {
     try { pts = detectVideo(detCanvas, now); } catch (e) { console.error(e); }
     S.live = pts ? { pts, aspect: vw / vh, m: measure(pts, vw / vh) } : null;
     updateFace(pts, vw / vh);
+    updateBody(pts, vw / vh);
     if (S.target.plain) {
       const ar = S.target.aspect;
       const H = Math.min(vh, vw / ar) / S.zoom, W = H * ar;
@@ -1260,6 +1299,116 @@ async function likeShot() {
   renderViewer();
 }
 
+/* 터치 보정 편집기 */
+let liq = null;
+const brush = { size: 14, power: 50, last: null };
+
+async function openEditor() {
+  const shot = S.shots[S.viewIdx];
+  if (!shot) return;
+  let bmp;
+  try {
+    bmp = await loadBitmap(shot.blob);
+  } catch (e) {
+    console.error(e);
+    toast('사진을 열지 못했어요');
+    return;
+  }
+  $('editor').hidden = false;
+  // 화면에 맞는 크기로 캔버스를 놓는다.
+  const stage = $('editStage').getBoundingClientRect();
+  const ar = bmp.width / bmp.height;
+  const w = Math.min(stage.width - 16, (stage.height - 8) * ar), h = w / ar;
+  const wrap = $('editWrap');
+  wrap.style.width = `${w}px`;
+  wrap.style.height = `${h}px`;
+  // 이전 편집의 그리기 상태가 남지 않게 캔버스를 새로 만든다.
+  const old = $('editCanvas');
+  const canvas = document.createElement('canvas');
+  canvas.id = 'editCanvas';
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  canvas.width = Math.round(w * dpr);
+  canvas.height = Math.round(h * dpr);
+  old.replaceWith(canvas);
+  try {
+    liq = new Liquify(canvas, bmp, bmp.width, bmp.height);
+  } catch (e) {
+    console.error(e);
+    $('editor').hidden = true;
+    toast('이 기기에서는 터치 보정을 쓸 수 없어요');
+  }
+  if (bmp.close) bmp.close();
+}
+
+function closeEditor() {
+  liq = null;
+  brush.last = null;
+  $('brushRing').hidden = true;
+  $('editor').hidden = true;
+}
+
+function bindEditor() {
+  const wrap = $('editWrap');
+  const ring = $('brushRing');
+  const where = (e) => {
+    const r = wrap.getBoundingClientRect();
+    return { x: (e.clientX - r.left) / r.width, y: (e.clientY - r.top) / r.height, r };
+  };
+  const moveRing = (p) => {
+    const d = (brush.size / 100) * p.r.height * 2;
+    ring.style.width = ring.style.height = `${d}px`;
+    ring.style.left = `${p.x * p.r.width}px`;
+    ring.style.top = `${p.y * p.r.height}px`;
+    ring.hidden = false;
+  };
+  wrap.addEventListener('pointerdown', (e) => {
+    if (!liq) return;
+    e.preventDefault();
+    wrap.setPointerCapture(e.pointerId);
+    const p = where(e);
+    brush.last = p;
+    liq.beginStroke();
+    moveRing(p);
+  });
+  wrap.addEventListener('pointermove', (e) => {
+    if (!liq || !brush.last) return;
+    const p = where(e);
+    liq.push(brush.last.x, brush.last.y, p.x - brush.last.x, p.y - brush.last.y, brush.size / 100, brush.power / 100);
+    brush.last = p;
+    moveRing(p);
+  });
+  const end = () => { brush.last = null; ring.hidden = true; };
+  wrap.addEventListener('pointerup', end);
+  wrap.addEventListener('pointercancel', end);
+
+  $('brushSize').oninput = (e) => { brush.size = Number(e.target.value); $('brushSizeOut').textContent = e.target.value; };
+  $('brushPower').oninput = (e) => { brush.power = Number(e.target.value); $('brushPowerOut').textContent = e.target.value; };
+  $('editUndo').onclick = () => { if (liq && !liq.undo()) toast('되돌릴 내용이 없어요', 1400); };
+  $('editReset').onclick = () => liq && liq.reset();
+  $('editCancel').onclick = closeEditor;
+  $('editSave').onclick = async () => {
+    if (!liq) return;
+    if (!liq.changed()) { closeEditor(); return; }
+    try {
+      // 원본은 그대로 두고 보정본을 새 사진으로 저장한다.
+      const { blob, w, h } = await liq.export();
+      if (!blob) throw new Error('사진을 만들지 못했어요');
+      const shot = { id: store.newId(), blob, w, h, createdAt: Date.now(), edited: true };
+      await store.put('shots', shot);
+      shot.url = URL.createObjectURL(blob);
+      S.shots.push(shot);
+      S.viewIdx = S.shots.length - 1;
+      updateGalleryThumb();
+      closeEditor();
+      renderViewer();
+      toast('보정본을 새 사진으로 저장했어요');
+    } catch (e) {
+      console.error(e);
+      toast('저장하지 못했어요. 다시 시도해 주세요.');
+    }
+  };
+}
+
 async function deleteShot() {
   if (!delArmed) {
     $('delShot').textContent = '한 번 더 누르면 삭제';
@@ -1339,6 +1488,8 @@ function bind() {
   $('saveShot').onclick = saveShot;
   $('likeShot').onclick = likeShot;
   $('delShot').onclick = deleteShot;
+  $('editShot').onclick = openEditor;
+  bindEditor();
 
   window.addEventListener('resize', layoutFinder);
   window.addEventListener('orientationchange', () => setTimeout(layoutFinder, 250));

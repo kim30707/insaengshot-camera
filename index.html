@@ -147,8 +147,33 @@
   <div id="viewerStrip" class="strip viewer-strip"></div>
   <div class="viewer-actions">
     <button id="delShot" class="btn btn-ghost">삭제</button>
+    <button id="editShot" class="btn btn-ghost">터치 보정</button>
     <button id="likeShot" class="btn btn-ghost">♥ 취향에 추가</button>
     <button id="saveShot" class="btn btn-primary">저장</button>
+  </div>
+</section>
+
+<!-- 터치 보정: 찍은 사진을 손가락으로 밀어 다듬기 -->
+<section id="editor" class="screen viewer editor" hidden>
+  <div class="viewer-top">
+    <button id="editCancel" class="fx-link">취소</button>
+    <p class="editor-title">터치 보정</p>
+    <button id="editSave" class="fx-link editor-save">저장</button>
+  </div>
+  <div id="editStage" class="viewer-main editor-stage">
+    <div id="editWrap" class="edit-wrap">
+      <canvas id="editCanvas"></canvas>
+      <div id="brushRing" class="brush-ring" hidden></div>
+    </div>
+  </div>
+  <p class="editor-help">다듬고 싶은 곳을 손가락으로 밀어 보세요.</p>
+  <div class="editor-tools">
+    <div class="fx-row"><label for="brushSize">붓 크기</label><input id="brushSize" type="range" min="4" max="40" value="14"><output id="brushSizeOut">14</output></div>
+    <div class="fx-row"><label for="brushPower">세기</label><input id="brushPower" type="range" min="10" max="100" value="50"><output id="brushPowerOut">50</output></div>
+    <div class="editor-btns">
+      <button id="editUndo" class="btn btn-ghost">되돌리기</button>
+      <button id="editReset" class="btn btn-ghost">처음으로</button>
+    </div>
   </div>
 </section>
 
