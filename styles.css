@@ -132,6 +132,7 @@ h2 { margin: 0; font-size: 16px; font-weight: 700; }
   font-size: 21px; font-weight: 800; letter-spacing: -0.02em; line-height: 1.25; color: var(--guide);
 }
 .hint.ok { color: var(--ok); }
+.hint:empty { display: none; }
 .hint-sub { margin: 6px 0 0; font-size: 13px; color: #fff; text-shadow: 0 1px 4px rgba(0, 0, 0, 0.9); }
 
 .gauge {
@@ -197,7 +198,7 @@ h2 { margin: 0; font-size: 16px; font-weight: 700; }
 .viewer-actions .btn { min-height: 48px; font-size: 14.5px; padding: 0 8px; }
 
 .toast {
-  position: fixed; left: 50%; bottom: calc(var(--sab) + 190px); transform: translateX(-50%); z-index: 20;
+  position: fixed; left: 50%; top: calc(var(--sat) + 62px); transform: translateX(-50%); z-index: 20;
   background: rgba(30, 32, 38, 0.95); color: var(--fg); padding: 10px 16px; border-radius: 12px;
   font-size: 14px; font-weight: 600; max-width: calc(100% - 32px); text-align: center;
 }
@@ -206,3 +207,44 @@ h2 { margin: 0; font-size: 16px; font-weight: 700; }
   .flash.go { animation: none; }
   .gauge-dot, .shutter-core, .finder { transition: none; }
 }
+
+/* ---------- 일반 촬영: 비율·줌 ---------- */
+.plain-bar {
+  position: absolute; left: 12px; right: 12px; bottom: 10px;
+  display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap;
+}
+.seg { display: flex; gap: 2px; padding: 3px; border-radius: 999px; background: rgba(0, 0, 0, 0.55); backdrop-filter: blur(8px); }
+.seg button { min-width: 40px; padding: 6px 9px; border-radius: 999px; font-size: 12.5px; font-weight: 700; color: #ddd; font-variant-numeric: tabular-nums; }
+.seg button.on { background: var(--guide); color: #1a1405; }
+
+.countdown {
+  position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none;
+  font-size: 120px; font-weight: 800; color: #fff; text-shadow: 0 4px 24px rgba(0, 0, 0, 0.7); font-variant-numeric: tabular-nums;
+}
+
+/* ---------- 보정 패널 ---------- */
+.fx-panel { background: var(--surface); border-radius: 16px; margin: 0 8px; padding: 10px 14px 12px; display: flex; flex-direction: column; gap: 10px; }
+.cam-bottom.fx-open .chips, .cam-bottom.fx-open .strip { display: none; }
+.fx-head { display: flex; align-items: center; gap: 14px; }
+.switch { display: flex; align-items: center; gap: 9px; font-weight: 700; font-size: 14.5px; margin-right: auto; cursor: pointer; }
+.switch input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.switch-track { position: relative; width: 44px; height: 26px; border-radius: 999px; background: var(--line); transition: background 0.15s; flex: none; }
+.switch-track::after { content: ""; position: absolute; left: 3px; top: 3px; width: 20px; height: 20px; border-radius: 50%; background: #fff; transition: transform 0.15s; }
+.switch input:checked + .switch-track { background: var(--guide); }
+.switch input:checked + .switch-track::after { transform: translateX(18px); }
+.switch input:focus-visible + .switch-track { outline: 2px solid var(--guide); outline-offset: 2px; }
+.fx-link { color: var(--muted); font-size: 13.5px; font-weight: 600; padding: 6px 2px; }
+.fx-tabs { display: flex; gap: 4px; background: var(--surface-2); border-radius: 10px; padding: 3px; }
+.fx-tabs button { flex: 1; padding: 7px 0; border-radius: 8px; font-size: 13.5px; font-weight: 700; color: var(--muted); }
+.fx-tabs button.on { background: var(--bg); color: var(--fg); }
+.fx-body { display: flex; flex-direction: column; gap: 8px; min-height: 148px; }
+.fx-body.off { opacity: 0.45; }
+.fx-row { display: grid; grid-template-columns: 96px 1fr 34px; align-items: center; gap: 10px; font-size: 13.5px; }
+.fx-row output { text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
+.fx-row input[type="range"] { width: 100%; accent-color: var(--guide); height: 28px; margin: 0; }
+.fx-filters { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
+.fx-filters::-webkit-scrollbar { display: none; }
+.fx-filters button { flex: none; padding: 9px 14px; border-radius: 10px; background: var(--surface-2); font-size: 13.5px; font-weight: 700; color: var(--muted); }
+.fx-filters button.on { background: var(--guide); color: #1a1405; }
+.fx-note { margin: 0; color: var(--muted); font-size: 12px; }
+@media (prefers-reduced-motion: reduce) { .switch-track, .switch-track::after { transition: none; } }

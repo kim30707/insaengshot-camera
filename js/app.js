@@ -11,7 +11,30 @@ const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 const HOLD_MS = 900;        // 자리가 맞은 채로 이만큼 유지되면 자동 촬영
 const REARM_MS = 5000;      // 같은 자리에 계속 있으면 이 간격으로 한 장씩 더 찍는다
 
+// 보정 필터: 밝기(스톱), 대비, 채도, 색온도, 바랜 느낌
+const FILTERS = {
+  none: { name: '없음' },
+  bright: { name: '화사', exp: 0.18, con: 0.95, sat: 1.05, temp: 0.05, fade: 0.04 },
+  film: { name: '필름', con: 0.92, sat: 0.9, temp: 0.15, fade: 0.1 },
+  cool: { name: '쿨', exp: 0.05, sat: 0.95, temp: -0.25 },
+  warm: { name: '웜', sat: 1.05, temp: 0.3 },
+  vivid: { name: '선명', con: 1.15, sat: 1.2 },
+  mono: { name: '흑백', con: 1.1, sat: 0 },
+  vintage: { name: '빈티지', con: 0.9, sat: 0.75, temp: 0.25, fade: 0.16 },
+};
+const FX_DEFAULT = { on: false, smooth: 45, bright: 30, slim: 30, eye: 20, filter: 'none', filterAmt: 80, exp: 0, con: 0, sat: 0, temp: 0 };
+const FX_SLIDERS = {
+  beauty: [['smooth', '피부 매끈하게', 0], ['bright', '화사하게', 0], ['slim', '얼굴 갸름하게', 0], ['eye', '눈 크게', 0]],
+  adjust: [['exp', '밝기', -100], ['con', '대비', -100], ['sat', '채도', -100], ['temp', '따뜻함', -100]],
+};
+const RATIOS = [['3:4', 3 / 4], ['9:16', 9 / 16], ['1:1', 1], ['4:3', 4 / 3]];
+const ZOOMS = [1, 2, 3];
+// 가이드 없이 찍는 일반 촬영용 목표(구도·색감 맞춤 없음)
+const PLAIN = { id: 'plain', plain: true, aspect: store.getPref('plainAspect', 3 / 4), m: null, pts: null, lab: null, shot: 'scene' };
+
 const S = {
+  fx: { ...FX_DEFAULT, ...store.getPref('fx', {}) },
+  timer: store.getPref('timer', 0), countdown: 0, zoom: 1, torch: false, face: null, faceMiss: 0,
   refs: [], shots: [],
   target: null, pinnedId: null,
   facing: 'environment',
@@ -259,7 +282,7 @@ function renderHome() {
   $('empty').hidden = has;
   $('taste').hidden = !has;
   $('refCount').textContent = has ? `${S.refs.length}장` : '';
-  $('openCam').disabled = !has;
+  $('openCam').textContent = has ? '카메라 열기' : '일반 카메라로 열기';
   if (has) {
     const t = tasteText();
     $('tasteMain').textContent = t.main;
@@ -315,6 +338,9 @@ async function startSource() {
   try {
     const caps = S.track.getCapabilities ? S.track.getCapabilities() : {};
     if (caps.exposureCompensation) S.expCap = caps.exposureCompensation;
+    S.torch = false;
+    $('tTorch').hidden = !caps.torch;
+    setToggle('tTorch', false);
   } catch { /* 지원하지 않는 기기 */ }
   video.srcObject = stream;
   await video.play();
@@ -349,15 +375,19 @@ function mirrored() {
 
 function pickTarget() {
   const pinned = S.pinnedId && S.refs.find((r) => r.id === S.pinnedId);
-  const t = pinned || autoTarget();
+  const t = S.pinnedId === 'plain' || !S.refs.length ? PLAIN : pinned || autoTarget();
   if (t !== S.target) {
     S.target = t;
     S.cropS = null;
     S.zS = null;
     S.alignedSince = 0;
-    $('ghostImg').src = t.url;
+    S.sceneSim = null;
+    if (t.url) $('ghostImg').src = t.url;
     layoutFinder();
   }
+  $('ghostImg').hidden = !S.ghost || !!t.plain;
+  $('plainBar').hidden = !t.plain;
+  if (t.plain) { $('gauge').hidden = true; renderPlainBar(); }
   renderStrip();
 }
 
@@ -366,9 +396,15 @@ function renderStrip() {
   strip.textContent = '';
   const auto = document.createElement('button');
   auto.className = 'strip-item' + (S.pinnedId ? '' : ' on');
+  if (!S.refs.length) auto.hidden = true;
   auto.textContent = '내 취향 자동';
   auto.onclick = () => { S.pinnedId = null; pickTarget(); };
-  strip.append(auto);
+  if (S.refs.length) strip.append(auto);
+  const plain = document.createElement('button');
+  plain.className = 'strip-item' + (S.target && S.target.plain ? ' on' : '');
+  plain.textContent = '가이드 없음';
+  plain.onclick = () => { S.pinnedId = 'plain'; pickTarget(); };
+  strip.append(plain);
   for (const r of S.refs) {
     const b = document.createElement('button');
     b.className = 'strip-item' + (S.pinnedId === r.id ? ' on' : '');
@@ -405,14 +441,14 @@ function setToggle(id, on) {
 }
 
 async function openCamera() {
-  if (!S.refs.length) return;
   $('home').hidden = true;
   $('camera').hidden = false;
   setToggle('tAuto', S.auto);
   setToggle('tVoice', S.voice);
   setToggle('tGhost', S.ghost);
   setToggle('tColor', S.color);
-  $('ghostImg').hidden = !S.ghost;
+  renderTimer();
+  renderFx();
   setHint('카메라를 준비하고 있어요', '', false, 'init', true);
 
   // 사용자 터치 직후에만 허용되는 것들을 여기서 요청한다.
@@ -443,6 +479,7 @@ function closeCamera() {
   try { wakeLock?.release(); } catch { /* 무시 */ }
   wakeLock = null;
   window.speechSynthesis?.cancel();
+  cancelCountdown();
   $('camera').hidden = true;
   $('home').hidden = false;
   renderHome();
@@ -532,13 +569,15 @@ function evaluate(now) {
   }
   // 밝기
   let dark = false;
-  if (S.liveStats) {
+  if (S.liveStats && ref.lab) {
     const diff = S.liveStats.mean[0] - ref.lab.mean[0];
     dark = S.liveStats.mean[0] < 16;
     chips.push(diff < -20 ? { t: '어두워요', s: 'bad' } : diff > 22 ? { t: '밝아요', s: 'bad' } : { t: '밝기 맞음', s: 'ok' });
   }
 
-  if (!ref.m) {
+  if (ref.plain) {
+    hint = ['', '', 'plain'];
+  } else if (!ref.m) {
     // 풍경·사물: 사진을 겹쳐 보고 직접 누른다.
     $('gauge').hidden = true;
     let sim = null;
@@ -738,8 +777,184 @@ function drawOverlay(state) {
 }
 
 function currentColor() {
-  if (!S.color || !S.liveStats || !S.target) return null;
+  if (!S.color || !S.liveStats || !S.target || !S.target.lab) return null;
   return transferParams(S.liveStats, S.target.lab, 0.75);
+}
+
+/* 보정(선택 기능): 꺼져 있으면 아래 값은 전혀 적용되지 않는다. */
+
+// 눈·입 위치에서 얼굴 변형 기준점을 구해 부드럽게 따라가게 한다. 단위는 "프레임 높이 = 1".
+function updateFace(pts, aspect) {
+  if (!pts || !(pts[2][2] && pts[5][2] && pts[9][2] && pts[10][2])) {
+    if (++S.faceMiss > 6) S.face = null;
+    return;
+  }
+  S.faceMiss = 0;
+  const P = (i) => [pts[i][0] * aspect, pts[i][1]];
+  const eL = P(2), eR = P(5), mL = P(9), mR = P(10);
+  const eyeMid = [(eL[0] + eR[0]) / 2, (eL[1] + eR[1]) / 2];
+  const c = [(mL[0] + mR[0]) / 2, (mL[1] + mR[1]) / 2];
+  const ed = Math.hypot(eL[0] - eR[0], eL[1] - eR[1]);
+  let dn = [c[0] - eyeMid[0], c[1] - eyeMid[1]];
+  const n = Math.hypot(dn[0], dn[1]) || 1;
+  dn = [dn[0] / n, dn[1] / n];
+  const side = [dn[1], -dn[0]];
+  const jaw = (k) => [c[0] + side[0] * ed * 0.85 * k + dn[0] * ed * 0.15, c[1] + side[1] * ed * 0.85 * k + dn[1] * ed * 0.15];
+  const f = [...eL, ...eR, ...jaw(1), ...jaw(-1), ...c, ed];
+  S.face = S.face ? S.face.map((v, i) => v + (f[i] - v) * 0.5) : f;
+}
+
+function buildFx(aspect) {
+  const fx = { aspect, color: currentColor() };
+  const b = S.fx;
+  if (!b.on) return fx;
+  const F = FILTERS[b.filter] || FILTERS.none;
+  const a = b.filterAmt / 100;
+  const exp = (F.exp || 0) * a + (b.exp / 100) * 0.6;
+  fx.adj = [
+    Math.pow(2, exp),
+    (1 + ((F.con ?? 1) - 1) * a) * (1 + (b.con / 100) * 0.4),
+    (1 + ((F.sat ?? 1) - 1) * a) * (1 + (b.sat / 100) * 0.6),
+    (F.temp || 0) * a + (b.temp / 100) * 0.6,
+  ];
+  fx.fade = (F.fade || 0) * a;
+  fx.smooth = b.smooth / 100;
+  fx.bright = b.bright / 100;
+  if (S.face) {
+    fx.face = S.face;
+    fx.eyeK = (b.eye / 100) * 0.3;
+    fx.slimK = (b.slim / 100) * 0.14;
+    fx.blurR = S.face[10] * 0.12;
+  }
+  return fx;
+}
+
+let fxTab = 'beauty';
+function saveFx() { store.setPref('fx', S.fx); }
+function syncFxSwitch() {
+  $('fxOn').checked = S.fx.on;
+  setToggle('tFx', S.fx.on);
+  $('fxBody').classList.toggle('off', !S.fx.on);
+}
+
+function renderFx() {
+  syncFxSwitch();
+  const tabs = $('fxTabs');
+  tabs.textContent = '';
+  for (const [key, name] of [['beauty', '뷰티'], ['filter', '필터'], ['adjust', '조정']]) {
+    const b = document.createElement('button');
+    b.textContent = name;
+    b.className = key === fxTab ? 'on' : '';
+    b.setAttribute('role', 'tab');
+    b.setAttribute('aria-selected', key === fxTab ? 'true' : 'false');
+    b.onclick = () => { fxTab = key; renderFx(); };
+    tabs.append(b);
+  }
+  const body = $('fxBody');
+  body.textContent = '';
+  const slider = (key, label, min) => {
+    const row = document.createElement('div');
+    row.className = 'fx-row';
+    const l = document.createElement('label');
+    l.textContent = label;
+    l.htmlFor = `fx-${key}`;
+    const input = document.createElement('input');
+    input.type = 'range';
+    input.id = `fx-${key}`;
+    input.min = String(min);
+    input.max = '100';
+    input.value = String(S.fx[key]);
+    const out = document.createElement('output');
+    out.textContent = String(S.fx[key]);
+    input.oninput = () => {
+      S.fx[key] = Number(input.value);
+      out.textContent = input.value;
+      S.fx.on = true; // 값을 만지면 보정을 켠다
+      syncFxSwitch();
+      saveFx();
+    };
+    row.append(l, input, out);
+    body.append(row);
+  };
+  if (fxTab === 'filter') {
+    const list = document.createElement('div');
+    list.className = 'fx-filters';
+    for (const [key, f] of Object.entries(FILTERS)) {
+      const b = document.createElement('button');
+      b.textContent = f.name;
+      b.className = S.fx.filter === key ? 'on' : '';
+      b.onclick = () => { S.fx.filter = key; if (key !== 'none') S.fx.on = true; saveFx(); renderFx(); };
+      list.append(b);
+    }
+    body.append(list);
+    slider('filterAmt', '필터 세기', 0);
+  } else {
+    for (const [key, label, min] of FX_SLIDERS[fxTab]) slider(key, label, min);
+    if (fxTab === 'beauty') {
+      const note = document.createElement('p');
+      note.className = 'fx-note';
+      note.textContent = '갸름하게·눈 크게는 얼굴이 정면으로 보일 때 적용됩니다.';
+      body.append(note);
+    }
+  }
+}
+
+function toggleFxPanel(open) {
+  $('fxPanel').hidden = !open;
+  $('camBottom').classList.toggle('fx-open', open);
+  if (open) renderFx();
+  layoutFinder();
+}
+
+/* 일반 촬영: 화면 비율과 줌 */
+function renderPlainBar() {
+  const seg = (id, items, isOn, pick) => {
+    const box = $(id);
+    box.textContent = '';
+    for (const [label, value] of items) {
+      const b = document.createElement('button');
+      b.textContent = label;
+      b.className = isOn(value) ? 'on' : '';
+      b.onclick = () => { pick(value); renderPlainBar(); };
+      box.append(b);
+    }
+  };
+  seg('ratioSeg', RATIOS, (v) => Math.abs(v - PLAIN.aspect) < 0.01, (v) => {
+    PLAIN.aspect = v;
+    store.setPref('plainAspect', v);
+    S.cropS = null;
+    layoutFinder();
+  });
+  seg('zoomSeg', ZOOMS.map((z) => [`${z}x`, z]), (v) => v === S.zoom, (v) => { S.zoom = v; });
+}
+
+/* 타이머 */
+function renderTimer() {
+  $('tTimer').textContent = S.timer ? `타이머 ${S.timer}초` : '타이머 끔';
+  setToggle('tTimer', S.timer > 0);
+}
+let countdownTimer = 0;
+function cancelCountdown() {
+  clearInterval(countdownTimer);
+  S.countdown = 0;
+  $('countdown').hidden = true;
+}
+function shootNow() {
+  S.lastShotAt = performance.now();
+  S.armed = false;
+  capture();
+}
+function onShutter() {
+  if (S.countdown) { cancelCountdown(); return; } // 다시 누르면 취소
+  if (!S.timer) { shootNow(); return; }
+  S.countdown = S.timer;
+  const el = $('countdown');
+  el.textContent = String(S.countdown);
+  el.hidden = false;
+  countdownTimer = setInterval(() => {
+    S.countdown -= 1;
+    if (S.countdown <= 0) { cancelCountdown(); shootNow(); } else el.textContent = String(S.countdown);
+  }, 1000);
 }
 
 function cropNorm(vw, vh) {
@@ -767,7 +982,14 @@ function frame(now) {
     let pts = null;
     try { pts = detectVideo(detCanvas, now); } catch (e) { console.error(e); }
     S.live = pts ? { pts, aspect: vw / vh, m: measure(pts, vw / vh) } : null;
-    S.sol = solveCrop(S.target, S.live && S.live.m, vw, vh, mirror);
+    updateFace(pts, vw / vh);
+    if (S.target.plain) {
+      const ar = S.target.aspect;
+      const H = Math.min(vh, vw / ar) / S.zoom, W = H * ar;
+      S.sol = { crop: { x: (vw - W) / 2, y: (vh - H) / 2, w: W, h: H }, matched: false };
+    } else {
+      S.sol = solveCrop(S.target, S.live && S.live.m, vw, vh, mirror);
+    }
     if (S.sol.matched) {
       const a = 0.35;
       S.zS = S.zS == null ? S.sol.z : S.zS + (S.sol.z - S.zS) * a;
@@ -782,7 +1004,7 @@ function frame(now) {
       const img = detCtx.getImageData(0, 0, dw, dh);
       const cn = cropNorm(vw, vh);
       S.liveStats = lerpStats(S.liveStats, labStats(img, cn), 0.35);
-      if (!S.target.m) {
+      if (!S.target.m && S.target.layout) {
         const sig = layoutSignature(detCtx, cn.x * dw, cn.y * dh, cn.w * dw, cn.h * dh, detCanvas, mirror);
         let dot = 0;
         for (let i = 0; i < 144; i++) dot += sig[i] * S.target.layout[i];
@@ -807,13 +1029,13 @@ function frame(now) {
     S.cropS.y = clamp(S.cropS.y, 0, vh - S.cropS.h);
   }
   if (!S.cropS) return;
-  viewR.draw(src.el, cropNorm(vw, vh), mirror, currentColor());
+  viewR.draw(src.el, cropNorm(vw, vh), mirror, buildFx(vw / vh));
   drawOverlay(lastState);
 }
 
 // 기기가 지원하면 노출을 좋아하는 사진의 밝기 쪽으로 조금씩 맞춘다.
 function tuneExposure(now) {
-  if (!S.track || !S.expCap || !S.liveStats || now - S.lastExp < 900) return;
+  if (!S.track || !S.expCap || !S.liveStats || !S.target.lab || now - S.lastExp < 900) return;
   S.lastExp = now;
   const diff = S.target.lab.mean[0] - S.liveStats.mean[0];
   if (Math.abs(diff) < 8) return;
@@ -855,7 +1077,7 @@ async function capture() {
     const k = Math.min(1, capR.maxTex / Math.max(ow, oh));
     ow = Math.round(ow * k); oh = Math.round(oh * k);
     capR.resize(ow, oh);
-    capR.draw(S.src.el, cropNorm(vw, vh), mirrored(), currentColor());
+    capR.draw(S.src.el, cropNorm(vw, vh), mirrored(), buildFx(vw / vh));
     const blob = await new Promise((r) => capR.canvas.toBlob(r, 'image/jpeg', 0.94));
     if (!blob) throw new Error('사진을 만들지 못했어요');
     const flash = $('flash');
@@ -996,7 +1218,25 @@ function bind() {
   });
   $('openCam').onclick = openCamera;
   $('closeCam').onclick = closeCamera;
-  $('shutter').onclick = () => { S.lastShotAt = performance.now(); S.armed = false; capture(); };
+  $('shutter').onclick = onShutter;
+  $('tFx').onclick = () => toggleFxPanel($('fxPanel').hidden);
+  $('fxClose').onclick = () => toggleFxPanel(false);
+  $('fxOn').onchange = (e) => { S.fx.on = e.target.checked; saveFx(); syncFxSwitch(); };
+  $('fxReset').onclick = () => { S.fx = { ...FX_DEFAULT, on: S.fx.on }; saveFx(); renderFx(); };
+  $('tTimer').onclick = () => {
+    S.timer = S.timer === 0 ? 3 : S.timer === 3 ? 10 : 0;
+    store.setPref('timer', S.timer);
+    renderTimer();
+  };
+  $('tTorch').onclick = async () => {
+    if (!S.track) return;
+    const next = !S.torch;
+    try {
+      await S.track.applyConstraints({ advanced: [{ torch: next }] });
+      S.torch = next;
+      setToggle('tTorch', next);
+    } catch { toast('이 카메라에서는 조명을 켤 수 없어요'); }
+  };
   $('galleryBtn').onclick = openViewer;
   $('flip').onclick = async () => {
     if (testSrc) return;
@@ -1014,7 +1254,7 @@ function bind() {
   };
   toggle('tAuto', 'auto');
   toggle('tVoice', 'voice', () => { if (!S.voice) window.speechSynthesis?.cancel(); });
-  toggle('tGhost', 'ghost', () => { $('ghostImg').hidden = !S.ghost; });
+  toggle('tGhost', 'ghost', () => { $('ghostImg').hidden = !S.ghost || !!(S.target && S.target.plain); });
   toggle('tColor', 'color');
 
   $('closeViewer').onclick = () => { $('viewer').hidden = true; };

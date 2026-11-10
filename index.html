@@ -47,7 +47,7 @@
   <footer class="home-foot">
     <label class="btn btn-ghost" for="filePick">사진 추가</label>
     <input id="filePick" type="file" accept="image/*" multiple hidden>
-    <button id="openCam" class="btn btn-primary" disabled>카메라 열기</button>
+    <button id="openCam" class="btn btn-primary">카메라 열기</button>
     <p class="privacy">사진은 이 기기 안에서만 분석·저장됩니다.</p>
   </footer>
 </main>
@@ -60,6 +60,9 @@
     </button>
     <div class="toggles">
       <button id="tAuto" class="toggle" aria-pressed="true">자동 촬영</button>
+      <button id="tFx" class="toggle" aria-pressed="false">보정</button>
+      <button id="tTimer" class="toggle" aria-pressed="false">타이머 끔</button>
+      <button id="tTorch" class="toggle" aria-pressed="false" hidden>조명</button>
       <button id="tVoice" class="toggle" aria-pressed="false">음성</button>
       <button id="tGhost" class="toggle" aria-pressed="false">겹쳐보기</button>
       <button id="tColor" class="toggle" aria-pressed="true">색감</button>
@@ -82,10 +85,24 @@
       <div class="gauge-track"><div class="gauge-ok"></div><div id="gaugeDot" class="gauge-dot"></div></div>
       <span class="gauge-end">가깝다</span>
     </div>
+    <div id="plainBar" class="plain-bar" hidden>
+      <div id="ratioSeg" class="seg" role="group" aria-label="화면 비율"></div>
+      <div id="zoomSeg" class="seg" role="group" aria-label="줌"></div>
+    </div>
+    <div id="countdown" class="countdown" hidden></div>
     <div id="camError" class="cam-error" hidden></div>
   </div>
 
-  <div class="cam-bottom">
+  <div id="camBottom" class="cam-bottom">
+    <div id="fxPanel" class="fx-panel" hidden>
+      <div class="fx-head">
+        <label class="switch" for="fxOn"><input id="fxOn" type="checkbox"><span class="switch-track"></span><span>보정 사용</span></label>
+        <button id="fxReset" class="fx-link">초기화</button>
+        <button id="fxClose" class="fx-link">닫기</button>
+      </div>
+      <div id="fxTabs" class="fx-tabs" role="tablist"></div>
+      <div id="fxBody" class="fx-body"></div>
+    </div>
     <div id="chips" class="chips"></div>
     <div id="strip" class="strip"></div>
     <div class="controls">
