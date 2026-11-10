@@ -60,12 +60,8 @@
     </button>
     <div class="toggles">
       <button id="tAuto" class="toggle" aria-pressed="true">자동 촬영</button>
-      <button id="tFx" class="toggle" aria-pressed="false">보정</button>
       <button id="tTimer" class="toggle" aria-pressed="false">타이머 끔</button>
       <button id="tTorch" class="toggle" aria-pressed="false" hidden>조명</button>
-      <button id="tVoice" class="toggle" aria-pressed="false">음성</button>
-      <button id="tGhost" class="toggle" aria-pressed="false">겹쳐보기</button>
-      <button id="tColor" class="toggle" aria-pressed="true">색감</button>
     </div>
   </div>
 
@@ -97,23 +93,44 @@
     <div id="fxPanel" class="fx-panel" hidden>
       <div class="fx-head">
         <label class="switch" for="fxOn"><input id="fxOn" type="checkbox"><span class="switch-track"></span><span>보정 사용</span></label>
+        <button id="fxHold" class="fx-link">누르는 동안 원본</button>
         <button id="fxReset" class="fx-link">초기화</button>
         <button id="fxClose" class="fx-link">닫기</button>
       </div>
       <div id="fxTabs" class="fx-tabs" role="tablist"></div>
       <div id="fxBody" class="fx-body"></div>
     </div>
+    <div id="optPanel" class="fx-panel" hidden>
+      <div class="fx-head">
+        <b class="opt-title">촬영 설정</b>
+        <button id="optClose" class="fx-link">닫기</button>
+      </div>
+      <div class="opt-list">
+        <button id="tColor" class="toggle" aria-pressed="true">좋아하는 사진 색감 맞춤</button>
+        <button id="tGhost" class="toggle" aria-pressed="false">좋아하는 사진 겹쳐보기</button>
+        <button id="tVoice" class="toggle" aria-pressed="false">음성 안내</button>
+        <button id="tTap" class="toggle" aria-pressed="false">화면 터치 촬영</button>
+        <button id="tMirror" class="toggle" aria-pressed="true">셀카 거울 모드로 저장</button>
+        <button id="tStamp" class="toggle" aria-pressed="false">날짜 넣기</button>
+      </div>
+    </div>
     <div id="chips" class="chips"></div>
     <div id="strip" class="strip"></div>
     <div class="controls">
-      <button id="galleryBtn" class="gallery-btn" aria-label="찍은 사진 보기"><img id="galleryThumb" alt="" hidden></button>
+      <div class="ctl-side">
+        <button id="galleryBtn" class="gallery-btn" aria-label="찍은 사진 보기"><img id="galleryThumb" alt="" hidden></button>
+        <button id="fxBtn" class="pill-btn" aria-expanded="false" aria-controls="fxPanel">보정</button>
+      </div>
       <button id="shutter" class="shutter" aria-label="촬영">
         <svg viewBox="0 0 100 100" class="ring"><circle cx="50" cy="50" r="46" class="ring-bg"/><circle id="ringFg" cx="50" cy="50" r="46" class="ring-fg"/></svg>
         <span class="shutter-core"></span>
       </button>
+      <div class="ctl-side right">
+        <button id="optBtn" class="pill-btn" aria-expanded="false" aria-controls="optPanel">설정</button>
       <button id="flip" class="icon-btn big" aria-label="카메라 전환">
         <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9a8 8 0 0114-3l2 2M20 15a8 8 0 01-14 3l-2-2"/><path d="M20 4v4h-4M4 20v-4h4"/></svg>
       </button>
+      </div>
     </div>
   </div>
 </section>

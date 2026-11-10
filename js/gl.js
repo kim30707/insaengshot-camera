@@ -33,6 +33,11 @@ uniform vec2 uBeauty;    // 피부 매끈, 화사
 uniform float uBlurR;    // 피부 매끈 반경
 uniform vec4 uAdj;       // 밝기 배율, 대비, 채도, 색온도
 uniform float uFade;
+uniform vec4 uNose;      // 양쪽 콧볼 xy
+uniform vec2 uNoseC;     // 코 중심
+uniform vec2 uNoseK;     // 콧볼 반경, 세기
+uniform vec3 uFinish;    // 선명, 활기, 비네팅
+uniform vec2 uTexel;     // 원본 1픽셀 크기
 
 vec3 toLin(vec3 c) {
   return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(vec3(0.04045), c));
@@ -87,6 +92,8 @@ vec2 warp(vec2 uv) {
   p = bulge(p, uEyes.zw * a, uWarp.x, uWarpK.x);
   p = pull(p, uJaws.xy * a, uFaceC * a, uWarp.y, uWarpK.y);
   p = pull(p, uJaws.zw * a, uFaceC * a, uWarp.y, uWarpK.y);
+  p = pull(p, uNose.xy * a, uNoseC * a, uNoseK.x, uNoseK.y);
+  p = pull(p, uNose.zw * a, uNoseC * a, uNoseK.x, uNoseK.y);
   return p / a;
 }
 
@@ -131,6 +138,14 @@ void main() {
     }
   }
 
+  if (uFinish.x > 0.001) {
+    // 선명: 주변 평균과의 차이를 더해 윤곽을 살린다.
+    vec2 t = uTexel * 1.5;
+    vec3 avg = (texture2D(uTex, uv + vec2(t.x, 0.0)).rgb + texture2D(uTex, uv - vec2(t.x, 0.0)).rgb
+              + texture2D(uTex, uv + vec2(0.0, t.y)).rgb + texture2D(uTex, uv - vec2(0.0, t.y)).rgb) * 0.25;
+    c += (c - avg) * uFinish.x * 1.6;
+  }
+
   if (uOn > 0.5) {
     vec3 lab = rgb2lab(c);
     lab = (lab - uMean) * uScale + uMean + uShift;
@@ -145,6 +160,16 @@ void main() {
   c = mix(vec3(l), c, uAdj.z);
   c = (c - 0.5) * uAdj.y + 0.5;
   c = mix(c, c * 0.82 + 0.13, uFade);
+  if (uFinish.y != 0.0) {
+    // 활기: 이미 진한 색은 덜, 옅은 색은 더 살린다.
+    float mx = max(c.r, max(c.g, c.b)), mn = min(c.r, min(c.g, c.b));
+    float l2 = dot(c, vec3(0.299, 0.587, 0.114));
+    c = mix(vec3(l2), c, 1.0 + uFinish.y * (1.0 - (mx - mn)));
+  }
+  if (uFinish.z > 0.001) {
+    float d = distance(vUv, vec2(0.5)) * 1.414;
+    c *= 1.0 - uFinish.z * 0.75 * smoothstep(0.45, 1.0, d);
+  }
   gl_FragColor = vec4(clamp(c, 0.0, 1.0), 1.0);
 }`;
 
@@ -159,6 +184,7 @@ function compile(gl, type, src) {
 const UNIFORMS = [
   'uTex', 'uCrop', 'uMirror', 'uAspect', 'uMean', 'uScale', 'uShift', 'uOn',
   'uEyes', 'uJaws', 'uFaceC', 'uWarp', 'uWarpK', 'uBeauty', 'uBlurR', 'uAdj', 'uFade',
+  'uNose', 'uNoseC', 'uNoseK', 'uFinish', 'uTexel',
 ];
 
 export class Renderer {
@@ -199,7 +225,7 @@ export class Renderer {
   }
 
   // crop: {x,y,w,h} 0~1 정규화(원본 기준)
-  // fx: { aspect, color?, adj?, fade?, smooth?, bright?, blurR?, face?, eyeK?, slimK? }
+  // fx: { aspect, color?, adj?, fade?, smooth?, bright?, blurR?, face?, eyeK?, slimK?, noseK?, sharp?, vib?, vig? }
   //     color·보정 항목이 없으면 원본 그대로 그린다.
   draw(source, crop, mirror, fx) {
     const gl = this.gl, u = this.u;
@@ -218,7 +244,7 @@ export class Renderer {
       gl.uniform1f(u.uOn, 0);
     }
     const f = fx.face;
-    const warpOn = f && ((fx.eyeK || 0) > 0.001 || (fx.slimK || 0) > 0.001);
+    const warpOn = f && ((fx.eyeK || 0) > 0.001 || (fx.slimK || 0) > 0.001 || (fx.noseK || 0) > 0.001);
     if (warpOn) {
       // f: [왼눈x,y, 오른눈x,y, 턱x,y, 턱x,y, 중심x,y, 눈사이거리] — x는 세로 기준 단위라 aspect로 나눠 uv로 바꾼다.
       gl.uniform4f(u.uEyes, f[0] / A, f[1], f[2] / A, f[3]);
@@ -226,6 +252,9 @@ export class Renderer {
       gl.uniform2f(u.uFaceC, f[8] / A, f[9]);
       gl.uniform3f(u.uWarp, f[10] * 0.42, f[10] * 1.0, 1);
       gl.uniform2f(u.uWarpK, fx.eyeK || 0, fx.slimK || 0);
+      gl.uniform4f(u.uNose, f[11] / A, f[12], f[13] / A, f[14]);
+      gl.uniform2f(u.uNoseC, f[15] / A, f[16]);
+      gl.uniform2f(u.uNoseK, f[10] * 0.34, fx.noseK || 0);
     } else {
       gl.uniform3f(u.uWarp, 1, 1, 0);
     }
@@ -234,6 +263,8 @@ export class Renderer {
     const adj = fx.adj || [1, 1, 1, 0];
     gl.uniform4f(u.uAdj, adj[0], adj[1], adj[2], adj[3]);
     gl.uniform1f(u.uFade, fx.fade || 0);
+    gl.uniform3f(u.uFinish, fx.sharp || 0, fx.vib || 0, fx.vig || 0);
+    gl.uniform2f(u.uTexel, 1 / (source.videoWidth || source.width || 1000), 1 / (source.videoHeight || source.height || 1000));
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
   }
 }

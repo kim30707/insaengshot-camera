@@ -20,12 +20,24 @@ const FILTERS = {
   warm: { name: '웜', sat: 1.05, temp: 0.3 },
   vivid: { name: '선명', con: 1.15, sat: 1.2 },
   mono: { name: '흑백', con: 1.1, sat: 0 },
-  vintage: { name: '빈티지', con: 0.9, sat: 0.75, temp: 0.25, fade: 0.16 },
+  vintage: { name: '빈티지', con: 0.9, sat: 0.75, temp: 0.25, fade: 0.16, vig: 0.35 },
+  cream: { name: '크림', exp: 0.22, con: 0.9, sat: 0.92, temp: 0.12, fade: 0.08 },
+  fresh: { name: '청량', exp: 0.1, con: 1.05, sat: 1.08, temp: -0.15, vib: 0.3 },
+  sunset: { name: '노을', con: 1.05, sat: 1.12, temp: 0.42, vig: 0.2 },
+  mood: { name: '무드', exp: -0.15, con: 1.12, sat: 0.85, temp: -0.05, fade: 0.06, vig: 0.45 },
+  pop: { name: '팝', con: 1.1, sat: 1.1, vib: 0.5 },
+  monoFilm: { name: '필름 흑백', con: 0.95, sat: 0, fade: 0.14, vig: 0.4 },
 };
-const FX_DEFAULT = { on: false, smooth: 45, bright: 30, slim: 30, eye: 20, filter: 'none', filterAmt: 80, exp: 0, con: 0, sat: 0, temp: 0 };
+// 한 번에 맞추는 뷰티 조합
+const BEAUTY_PRESETS = [
+  ['자연스럽게', { smooth: 35, bright: 20, slim: 15, eye: 10, nose: 0 }],
+  ['뽀샤시', { smooth: 70, bright: 55, slim: 30, eye: 20, nose: 15 }],
+  ['또렷하게', { smooth: 25, bright: 15, slim: 25, eye: 30, nose: 20 }],
+];
+const FX_DEFAULT = { on: false, smooth: 45, bright: 30, slim: 30, eye: 20, nose: 0, filter: 'none', filterAmt: 80, exp: 0, con: 0, sat: 0, temp: 0, vib: 0, sharp: 0, vig: 0 };
 const FX_SLIDERS = {
-  beauty: [['smooth', '피부 매끈하게', 0], ['bright', '화사하게', 0], ['slim', '얼굴 갸름하게', 0], ['eye', '눈 크게', 0]],
-  adjust: [['exp', '밝기', -100], ['con', '대비', -100], ['sat', '채도', -100], ['temp', '따뜻함', -100]],
+  beauty: [['smooth', '피부 매끈하게', 0], ['bright', '화사하게', 0], ['slim', '얼굴 갸름하게', 0], ['eye', '눈 크게', 0], ['nose', '콧볼 줄이기', 0]],
+  adjust: [['exp', '밝기', -100], ['con', '대비', -100], ['sat', '채도', -100], ['vib', '활기', -100], ['temp', '따뜻함', -100], ['sharp', '선명하게', 0], ['vig', '비네팅', 0]],
 };
 const RATIOS = [['3:4', 3 / 4], ['9:16', 9 / 16], ['1:1', 1], ['4:3', 4 / 3]];
 const ZOOMS = [1, 2, 3];
@@ -34,6 +46,7 @@ const PLAIN = { id: 'plain', plain: true, aspect: store.getPref('plainAspect', 3
 
 const S = {
   fx: { ...FX_DEFAULT, ...store.getPref('fx', {}) },
+  tapShot: store.getPref('tapShot', false), mirrorSave: store.getPref('mirrorSave', true), stamp: store.getPref('stamp', false), fxBypass: false,
   timer: store.getPref('timer', 0), countdown: 0, zoom: 1, torch: false, face: null, faceMiss: 0,
   refs: [], shots: [],
   target: null, pinnedId: null,
@@ -447,6 +460,10 @@ async function openCamera() {
   setToggle('tVoice', S.voice);
   setToggle('tGhost', S.ghost);
   setToggle('tColor', S.color);
+  setToggle('tTap', S.tapShot);
+  setToggle('tMirror', S.mirrorSave);
+  setToggle('tStamp', S.stamp);
+  showPanel(null);
   renderTimer();
   renderFx();
   setHint('카메라를 준비하고 있어요', '', false, 'init', true);
@@ -800,14 +817,17 @@ function updateFace(pts, aspect) {
   dn = [dn[0] / n, dn[1] / n];
   const side = [dn[1], -dn[0]];
   const jaw = (k) => [c[0] + side[0] * ed * 0.85 * k + dn[0] * ed * 0.15, c[1] + side[1] * ed * 0.85 * k + dn[1] * ed * 0.15];
-  const f = [...eL, ...eR, ...jaw(1), ...jaw(-1), ...c, ed];
+  // 코가 안 잡히면 눈과 입 사이로 추정한다.
+  const nose = pts[0][2] ? P(0) : [eyeMid[0] + dn[0] * ed * 0.6, eyeMid[1] + dn[1] * ed * 0.6];
+  const wing = (k) => [nose[0] + side[0] * ed * 0.3 * k + dn[0] * ed * 0.08, nose[1] + side[1] * ed * 0.3 * k + dn[1] * ed * 0.08];
+  const f = [...eL, ...eR, ...jaw(1), ...jaw(-1), ...c, ed, ...wing(1), ...wing(-1), ...nose];
   S.face = S.face ? S.face.map((v, i) => v + (f[i] - v) * 0.5) : f;
 }
 
 function buildFx(aspect) {
   const fx = { aspect, color: currentColor() };
   const b = S.fx;
-  if (!b.on) return fx;
+  if (!b.on || S.fxBypass) return fx;
   const F = FILTERS[b.filter] || FILTERS.none;
   const a = b.filterAmt / 100;
   const exp = (F.exp || 0) * a + (b.exp / 100) * 0.6;
@@ -818,12 +838,16 @@ function buildFx(aspect) {
     (F.temp || 0) * a + (b.temp / 100) * 0.6,
   ];
   fx.fade = (F.fade || 0) * a;
+  fx.vib = (F.vib || 0) * a + (b.vib / 100) * 0.8;
+  fx.vig = Math.min(1, (F.vig || 0) * a + b.vig / 100);
+  fx.sharp = b.sharp / 100;
   fx.smooth = b.smooth / 100;
   fx.bright = b.bright / 100;
   if (S.face) {
     fx.face = S.face;
     fx.eyeK = (b.eye / 100) * 0.3;
     fx.slimK = (b.slim / 100) * 0.14;
+    fx.noseK = (b.nose / 100) * 0.16;
     fx.blurR = S.face[10] * 0.12;
   }
   return fx;
@@ -833,7 +857,7 @@ let fxTab = 'beauty';
 function saveFx() { store.setPref('fx', S.fx); }
 function syncFxSwitch() {
   $('fxOn').checked = S.fx.on;
-  setToggle('tFx', S.fx.on);
+  $('fxBtn').classList.toggle('on', S.fx.on);
   $('fxBody').classList.toggle('off', !S.fx.on);
 }
 
@@ -886,23 +910,49 @@ function renderFx() {
       b.onclick = () => { S.fx.filter = key; if (key !== 'none') S.fx.on = true; saveFx(); renderFx(); };
       list.append(b);
     }
+    const rnd = document.createElement('button');
+    rnd.textContent = '무작위';
+    rnd.onclick = () => {
+      const keys = Object.keys(FILTERS).filter((k) => k !== 'none' && k !== S.fx.filter);
+      S.fx.filter = keys[Math.floor(Math.random() * keys.length)];
+      S.fx.on = true;
+      saveFx();
+      renderFx();
+    };
+    list.prepend(rnd);
     body.append(list);
     slider('filterAmt', '필터 세기', 0);
+    list.querySelector('.on')?.scrollIntoView({ inline: 'center', block: 'nearest' });
   } else {
+    if (fxTab === 'beauty') {
+      const row = document.createElement('div');
+      row.className = 'fx-presets';
+      for (const [name, values] of BEAUTY_PRESETS) {
+        const b = document.createElement('button');
+        b.textContent = name;
+        b.onclick = () => { Object.assign(S.fx, values, { on: true }); saveFx(); renderFx(); };
+        row.append(b);
+      }
+      body.append(row);
+    }
     for (const [key, label, min] of FX_SLIDERS[fxTab]) slider(key, label, min);
     if (fxTab === 'beauty') {
       const note = document.createElement('p');
       note.className = 'fx-note';
-      note.textContent = '갸름하게·눈 크게는 얼굴이 정면으로 보일 때 적용됩니다.';
+      note.textContent = '갸름하게·눈 크게·콧볼은 얼굴이 정면으로 보일 때 적용됩니다.';
       body.append(note);
     }
   }
 }
 
-function toggleFxPanel(open) {
-  $('fxPanel').hidden = !open;
-  $('camBottom').classList.toggle('fx-open', open);
-  if (open) renderFx();
+// 보정·설정 패널은 평소에 숨겨 두고 버튼을 누르면 펼친다. name: 'fx' | 'opt' | null
+function showPanel(name) {
+  $('fxPanel').hidden = name !== 'fx';
+  $('optPanel').hidden = name !== 'opt';
+  $('fxBtn').setAttribute('aria-expanded', name === 'fx' ? 'true' : 'false');
+  $('optBtn').setAttribute('aria-expanded', name === 'opt' ? 'true' : 'false');
+  $('camBottom').classList.toggle('fx-open', !!name);
+  if (name === 'fx') renderFx();
   layoutFinder();
 }
 
@@ -1077,8 +1127,27 @@ async function capture() {
     const k = Math.min(1, capR.maxTex / Math.max(ow, oh));
     ow = Math.round(ow * k); oh = Math.round(oh * k);
     capR.resize(ow, oh);
-    capR.draw(S.src.el, cropNorm(vw, vh), mirrored(), buildFx(vw / vh));
-    const blob = await new Promise((r) => capR.canvas.toBlob(r, 'image/jpeg', 0.94));
+    capR.draw(S.src.el, cropNorm(vw, vh), mirrored() && S.mirrorSave, buildFx(vw / vh));
+    let out = capR.canvas;
+    if (S.stamp) {
+      // 날짜를 사진 오른쪽 아래에 찍는다.
+      out = document.createElement('canvas');
+      out.width = ow;
+      out.height = oh;
+      const c2 = out.getContext('2d');
+      c2.drawImage(capR.canvas, 0, 0);
+      const d = new Date();
+      const text = `${d.getFullYear()}. ${String(d.getMonth() + 1).padStart(2, '0')}. ${String(d.getDate()).padStart(2, '0')}`;
+      const fs = Math.round(Math.min(ow, oh) * 0.042);
+      c2.font = `600 ${fs}px ui-monospace, Menlo, monospace`;
+      c2.textAlign = 'right';
+      c2.textBaseline = 'bottom';
+      c2.shadowColor = 'rgba(0,0,0,0.55)';
+      c2.shadowBlur = fs * 0.25;
+      c2.fillStyle = '#ffb648';
+      c2.fillText(text, ow - fs * 0.9, oh - fs * 0.8);
+    }
+    const blob = await new Promise((r) => out.toBlob(r, 'image/jpeg', 0.94));
     if (!blob) throw new Error('사진을 만들지 못했어요');
     const flash = $('flash');
     flash.classList.remove('go');
@@ -1219,8 +1288,14 @@ function bind() {
   $('openCam').onclick = openCamera;
   $('closeCam').onclick = closeCamera;
   $('shutter').onclick = onShutter;
-  $('tFx').onclick = () => toggleFxPanel($('fxPanel').hidden);
-  $('fxClose').onclick = () => toggleFxPanel(false);
+  $('fxBtn').onclick = () => showPanel($('fxPanel').hidden ? 'fx' : null);
+  $('optBtn').onclick = () => showPanel($('optPanel').hidden ? 'opt' : null);
+  $('fxClose').onclick = () => showPanel(null);
+  $('optClose').onclick = () => showPanel(null);
+  const hold = $('fxHold');
+  hold.onpointerdown = (e) => { e.preventDefault(); S.fxBypass = true; };
+  for (const ev of ['pointerup', 'pointerleave', 'pointercancel']) hold.addEventListener(ev, () => { S.fxBypass = false; });
+  $('finder').onclick = () => { if (S.tapShot) onShutter(); };
   $('fxOn').onchange = (e) => { S.fx.on = e.target.checked; saveFx(); syncFxSwitch(); };
   $('fxReset').onclick = () => { S.fx = { ...FX_DEFAULT, on: S.fx.on }; saveFx(); renderFx(); };
   $('tTimer').onclick = () => {
@@ -1256,6 +1331,9 @@ function bind() {
   toggle('tVoice', 'voice', () => { if (!S.voice) window.speechSynthesis?.cancel(); });
   toggle('tGhost', 'ghost', () => { $('ghostImg').hidden = !S.ghost || !!(S.target && S.target.plain); });
   toggle('tColor', 'color');
+  toggle('tTap', 'tapShot');
+  toggle('tMirror', 'mirrorSave');
+  toggle('tStamp', 'stamp');
 
   $('closeViewer').onclick = () => { $('viewer').hidden = true; };
   $('saveShot').onclick = saveShot;
